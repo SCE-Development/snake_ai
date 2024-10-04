@@ -1,0 +1,8 @@
+cloudpickle==3.0.0
+Farama-Notifications==0.0.4
+gymnasium==0.29.1
+numpy==2.1.1
+pygame==2.6.1
+setuptools==75.1.0
+typing_extensions==4.12.2
+wheel==0.44.0
