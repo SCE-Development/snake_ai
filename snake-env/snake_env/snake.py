@@ -81,7 +81,6 @@ class SnakeEnv(gym.Env):
         for i in range(np.random.randint(3, 5)):
             xi, yi = self.DIRECTIONS[orientation]
             self.snake_body.append([pos[0] - i * xi, pos[1] - i * yi])
-        print("starting orientation", orientation, "body", self.snake_body)
 
         # initialize food position
         self._spawn_food()
