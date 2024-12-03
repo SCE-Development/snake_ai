@@ -16,6 +16,7 @@ class ActorCritic(nn.Module):
         num_actions: int,
         emb_dim: int,
         kernel_size: int,
+        hidden_dim: int,
         dropout_rate: float = 0.1,
     ):
         # convolutional network
@@ -29,20 +30,30 @@ class ActorCritic(nn.Module):
         self.dropout = nn.Dropout(dropout_rate)
         self.preconv = nn.Linear(input_shape[-1], emb_dim)
         c = emb_dim
-        self.conv1 = nn.Conv2d(
-            c, c // 2, kernel_size=kernel_size, stride=2, padding=0, dilation=1
+        self.convs = []
+        while h * w * c > hidden_dim * 2:
+            conv = nn.Conv2d(
+                c, c // 2, kernel_size=kernel_size, stride=2, padding=0, dilation=1
+            )
+            h = int((h - (kernel_size - 1) - 1) / 2 + 1)
+            w = int((w - (kernel_size - 1) - 1) / 2 + 1)
+            c //= 2
+            self.convs.append(conv)
+        self.convs = nn.ModuleList(self.convs)
+        self.prob_dense = nn.Sequential(
+            nn.Linear(h * w * c, hidden_dim),
+            self.gelu,
+            nn.Linear(hidden_dim, hidden_dim),
+            self.gelu,
+            nn.Linear(hidden_dim, num_actions),
         )
-        h = int((h - (kernel_size - 1) - 1) / 2 + 1)
-        w = int((w - (kernel_size - 1) - 1) / 2 + 1)
-        c //= 2
-        self.conv2 = nn.Conv2d(
-            c, c // 4, kernel_size=kernel_size, stride=2, padding=0, dilation=1
+        self.val_dense = nn.Sequential(
+            nn.Linear(h * w * c, hidden_dim),
+            self.gelu,
+            nn.Linear(hidden_dim, hidden_dim),
+            self.gelu,
+            nn.Linear(hidden_dim, 1),
         )
-        h = int((h - (kernel_size - 1) - 1) / 2 + 1)
-        w = int((w - (kernel_size - 1) - 1) / 2 + 1)
-        c //= 4
-        self.prob_dense = nn.Linear(h * w * c, num_actions)
-        self.val_dense = nn.Linear(h * w * c, 1)
 
     def forward(self, states: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """
@@ -58,13 +69,15 @@ class ActorCritic(nn.Module):
                 of the shape (B,)
         """
 
-        x: torch.Tensor = self.gelu(self.preconv(states.float()))
+        x: torch.Tensor = self.gelu(
+            self.preconv(states.float().unsqueeze(1).unsqueeze(1))
+        )
         # B, H, W, C -> B, C, H, W
         x = x.permute(0, 3, 1, 2).contiguous()
 
         # pass through shared convs
-        x = self.dropout(self.selu(self.conv1(x)))
-        x = self.dropout(self.selu(self.conv2(x)))
+        for conv in self.convs:
+            x = self.dropout(self.selu(conv(x)))
         x = x.flatten(start_dim=1)
 
         # calculate probability logits and value

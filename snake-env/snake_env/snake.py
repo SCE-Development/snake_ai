@@ -35,6 +35,10 @@ class SnakeEnv(gym.Env):
     observation_space = gym.spaces.Box(
         low=0, high=3, shape=(SIZE_X + 2, SIZE_Y + 2, 4), dtype=np.uint8
     )
+    REWARD_SCALE = 0.1
+    EAT_REWARD = 50
+    DEATH_PENALTY = 100
+    INVALID_PENALTY = 10
 
     # display related constants
     FRAME_SCALE = 10
@@ -123,14 +127,27 @@ class SnakeEnv(gym.Env):
         # Making sure the snake cannot move in the opposite direction instantaneously
         change_to = self.ACTION_MAP[action]
 
-        if change_to == "UP" and self.direction != "DOWN":
-            self.direction = "UP"
-        if change_to == "DOWN" and self.direction != "UP":
-            self.direction = "DOWN"
-        if change_to == "LEFT" and self.direction != "RIGHT":
-            self.direction = "LEFT"
-        if change_to == "RIGHT" and self.direction != "LEFT":
-            self.direction = "RIGHT"
+        reward = 0
+        if change_to == "UP":
+            if self.direction != "DOWN":
+                self.direction = "UP"
+            else:
+                reward -= self.INVALID_PENALTY
+        if change_to == "DOWN":
+            if self.direction != "UP":
+                self.direction = "DOWN"
+            else:
+                reward -= self.INVALID_PENALTY
+        if change_to == "LEFT":
+            if self.direction != "RIGHT":
+                self.direction = "LEFT"
+            else:
+                reward -= self.INVALID_PENALTY
+        if change_to == "RIGHT":
+            if self.direction != "LEFT":
+                self.direction = "RIGHT"
+            else:
+                reward -= self.INVALID_PENALTY
 
         # Moving the snake
         if self.direction == "UP":
@@ -147,13 +164,13 @@ class SnakeEnv(gym.Env):
         dist = abs(self.snake_pos[0] - self.food_pos[0]) + abs(
             self.snake_pos[1] - self.food_pos[1]
         )
-        reward = 1 / (dist + 1)
+        reward += self.REWARD_SCALE * ((self.SIZE_X + self.SIZE_Y) / 3 - dist)
         if (
             self.snake_pos[0] == self.food_pos[0]
             and self.snake_pos[1] == self.food_pos[1]
         ):
             self.score += 1
-            reward += 1
+            reward += self.EAT_REWARD
             self._spawn_food()
         else:
             self.snake_body.pop()
@@ -169,7 +186,7 @@ class SnakeEnv(gym.Env):
         # hitting itself
         terminated = terminated or self.snake_pos in list(self.snake_body)[1:]
         if terminated:
-            reward = -1
+            reward = -self.DEATH_PENALTY
 
         # return the observation, reward, terminated, truncated, and info
         observation = self._get_obs()
