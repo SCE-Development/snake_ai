@@ -22,15 +22,23 @@ class SnakeEnv(gym.Env):
     HEAD = 2
     FOOD = 3
 
-    # action space
+    # game constants
     SIZE_X = 72
     SIZE_Y = 48
+    OFFSET = 20  # offset for valid spawns
     ACTION_MAP = ["UP", "DOWN", "LEFT", "RIGHT"]
+    DIRECTIONS = [(0, -1), (0, 1), (-1, 0), (1, 0)]
+
+    # action space
     action_space = gym.spaces.Discrete(4)  # up, down, left, right
     # 0 is empty, 1 is body, 2 is body head, 3 is food
     observation_space = gym.spaces.Box(
-        low=0, high=3, shape=(SIZE_X + 2, SIZE_Y + 2), dtype=np.uint8
+        low=0, high=3, shape=(SIZE_X + 2, SIZE_Y + 2, 4), dtype=np.uint8
     )
+    REWARD_SCALE = 0.1
+    EAT_REWARD = 50
+    DEATH_PENALTY = 100
+    INVALID_PENALTY = 10
 
     # display related constants
     FRAME_SCALE = 10
@@ -65,13 +73,23 @@ class SnakeEnv(gym.Env):
         super().reset(seed=seed)
         # set the initial position of the snake
         # positions are not in frame space; they are in grid space
-        self.snake_pos = [10, 5]
-        self.snake_body = deque([[10, 5], [9, 5], [8, 5]])
+        # start in a random position
+        pos = [
+            np.random.randint(self.OFFSET, self.SIZE_X - self.OFFSET),
+            np.random.randint(self.OFFSET, self.SIZE_Y - self.OFFSET),
+        ]
+        orientation = np.random.randint(0, 4)  # up, down, left right
+
+        self.snake_pos = pos
+        self.snake_body = deque()
+        for i in range(np.random.randint(3, 5)):
+            xi, yi = self.DIRECTIONS[orientation]
+            self.snake_body.append([pos[0] - i * xi, pos[1] - i * yi])
 
         # initialize food position
         self._spawn_food()
 
-        self.direction = "RIGHT"
+        self.direction = self.ACTION_MAP[orientation]
         self.score = 0
 
         return self._get_obs(), self._get_info()
@@ -109,14 +127,27 @@ class SnakeEnv(gym.Env):
         # Making sure the snake cannot move in the opposite direction instantaneously
         change_to = self.ACTION_MAP[action]
 
-        if change_to == "UP" and self.direction != "DOWN":
-            self.direction = "UP"
-        if change_to == "DOWN" and self.direction != "UP":
-            self.direction = "DOWN"
-        if change_to == "LEFT" and self.direction != "RIGHT":
-            self.direction = "LEFT"
-        if change_to == "RIGHT" and self.direction != "LEFT":
-            self.direction = "RIGHT"
+        reward = 0
+        if change_to == "UP":
+            if self.direction != "DOWN":
+                self.direction = "UP"
+            else:
+                reward -= self.INVALID_PENALTY
+        if change_to == "DOWN":
+            if self.direction != "UP":
+                self.direction = "DOWN"
+            else:
+                reward -= self.INVALID_PENALTY
+        if change_to == "LEFT":
+            if self.direction != "RIGHT":
+                self.direction = "LEFT"
+            else:
+                reward -= self.INVALID_PENALTY
+        if change_to == "RIGHT":
+            if self.direction != "LEFT":
+                self.direction = "RIGHT"
+            else:
+                reward -= self.INVALID_PENALTY
 
         # Moving the snake
         if self.direction == "UP":
@@ -130,13 +161,16 @@ class SnakeEnv(gym.Env):
 
         # Snake body growing mechanism
         self.snake_body.appendleft(list(self.snake_pos))
-        reward = 0
+        dist = abs(self.snake_pos[0] - self.food_pos[0]) + abs(
+            self.snake_pos[1] - self.food_pos[1]
+        )
+        reward += self.REWARD_SCALE * ((self.SIZE_X + self.SIZE_Y) / 3 - dist)
         if (
             self.snake_pos[0] == self.food_pos[0]
             and self.snake_pos[1] == self.food_pos[1]
         ):
             self.score += 1
-            reward = 1
+            reward += self.EAT_REWARD
             self._spawn_food()
         else:
             self.snake_body.pop()
@@ -151,6 +185,8 @@ class SnakeEnv(gym.Env):
             terminated = True
         # hitting itself
         terminated = terminated or self.snake_pos in list(self.snake_body)[1:]
+        if terminated:
+            reward = -self.DEATH_PENALTY
 
         # return the observation, reward, terminated, truncated, and info
         observation = self._get_obs()
@@ -159,11 +195,11 @@ class SnakeEnv(gym.Env):
 
     def _get_obs(self):
         # +2 for walls
-        observation = np.zeros((self.SIZE_X + 2, self.SIZE_Y + 2), dtype=np.uint8)
-        observation[self.snake_pos[0] + 1, self.snake_pos[1] + 1] = self.HEAD
+        observation = np.zeros((self.SIZE_X + 2, self.SIZE_Y + 2, 4), dtype=np.uint8)
+        observation[self.snake_pos[0] + 1, self.snake_pos[1] + 1, self.HEAD] = 1
         for x, y in list(self.snake_body)[1:]:
-            observation[x + 1, y + 1] = self.BODY
-        observation[self.food_pos[0] + 1, self.food_pos[1] + 1] = self.FOOD
+            observation[x + 1, y + 1, self.BODY] = 1
+        observation[self.food_pos[0] + 1, self.food_pos[1] + 1, self.FOOD] = 1
         return observation
 
     def _get_info(self):
