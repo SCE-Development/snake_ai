@@ -9,7 +9,7 @@ import torch.nn as nn
 import torch
 
 
-class ActorCritic(nn.Module):
+class CNNActorCritic(nn.Module):
     def __init__(
         self,
         input_shape: Tuple[int, int, int],
@@ -20,7 +20,7 @@ class ActorCritic(nn.Module):
         dropout_rate: float = 0.1,
     ):
         # convolutional network
-        super(ActorCritic, self).__init__()
+        super(CNNActorCritic, self).__init__()
 
         self.gelu = nn.GELU()
         self.selu = nn.SELU()
@@ -69,9 +69,7 @@ class ActorCritic(nn.Module):
                 of the shape (B,)
         """
 
-        x: torch.Tensor = self.gelu(
-            self.preconv(states.float().unsqueeze(1).unsqueeze(1))
-        )
+        x: torch.Tensor = self.gelu(self.preconv(states.float()))
         # B, H, W, C -> B, C, H, W
         x = x.permute(0, 3, 1, 2).contiguous()
 
@@ -90,7 +88,7 @@ class ActorCritic(nn.Module):
     ) -> Tuple[int, float]:
         """
         Convenience method to predict the (discrete) action
-        to take given a nonbatched state, its probability, and its value.
+        to take, its probability, and its value given a nonbatched state.
 
         Arguments:
             state (torch.Tensor): the current state, nonbatched. Shape
@@ -106,3 +104,128 @@ class ActorCritic(nn.Module):
         else:
             idx = probs.multinomial(1)
         return idx.item(), probs[idx].item(), vals.squeeze().item()
+
+    def predict_batched(
+        self, state: torch.Tensor, deterministic: bool = True
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Convenience method to predict the (discrete) action to take, its probability, and its value
+        given the batched current states
+
+        Arguments:
+            state (torch.Tensor): the current state, batched. Shape
+                should be (B, *state_dims)
+        Returns:
+            items (Tuple[torch.Tensor, torch.Tensor, torch.Tensor]): the discrete actions to take (B,),
+                their probability (B,), and their respective predicted values (B,)
+        """
+        with torch.no_grad():
+            probs, vals = self(state)
+        if deterministic:
+            actions = probs.argmax(dim=-1)
+        else:
+            actions = probs.multinomial(1)
+        actions = actions.squeeze()
+
+        return (
+            actions,
+            probs[torch.arange(probs.shape[0]), actions],
+            vals.squeeze(),
+        )
+
+
+class MLPActorCritic(nn.Module):
+    def __init__(
+        self,
+        num_actions: int,
+        state_dim: int,
+        hidden_dim: int,
+    ):
+        # simple mlp network
+        super(MLPActorCritic, self).__init__()
+
+        self.softmax = nn.Softmax(dim=1)
+
+        self.shared = nn.Sequential(
+            nn.Linear(state_dim, hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.GELU(),
+        )
+
+        self.prob_dense = nn.Sequential(
+            nn.Linear(hidden_dim, num_actions),
+        )
+        self.val_dense = nn.Sequential(
+            nn.Linear(hidden_dim, 1),
+        )
+
+    def forward(self, states: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Calls the model to predict the action probabilities and values B states
+
+        Arguments:
+            states (torch.Tensor): the states to predict action probabilities
+                for. Shape should be (B, *state_dims)
+
+        Returns:
+            items (Tuple[torch.Tensor, torch.Tensor]): a tuple of (probabilities, values), where
+                probabilities is a tensor of the shape (B, action_space) and values is a tensor
+                of the shape (B,)
+        """
+
+        x = self.shared(states)
+        # calculate probability logits and value
+        probs = self.softmax(self.prob_dense(x))
+        vals = self.val_dense(x)
+        return probs, vals
+
+    def predict(
+        self, state: torch.Tensor, deterministic: bool = True
+    ) -> Tuple[int, float]:
+        """
+        Convenience method to predict the (discrete) action
+        to take, its probability, and its value given a nonbatched state.
+
+        Arguments:
+            state (torch.Tensor): the current state, nonbatched. Shape
+                should be (*state_dims)
+        Returns:
+            items (Tuple[int, float, float]): the discrete action to take, its probability, and its predicted value
+        """
+        with torch.no_grad():
+            probs, vals = self(state.unsqueeze(0))
+        probs: torch.Tensor = probs.squeeze()
+        if deterministic:
+            idx = probs.argmax()
+        else:
+            idx = probs.multinomial(1)
+        return idx.item(), probs[idx].item(), vals.squeeze().item()
+
+    def predict_batched(
+        self, state: torch.Tensor, deterministic: bool = True
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Convenience method to predict the (discrete) action to take, its probability, and its value
+        given the batched current states
+
+        Arguments:
+            state (torch.Tensor): the current state, batched. Shape
+                should be (B, *state_dims)
+        Returns:
+            items (Tuple[torch.Tensor, torch.Tensor, torch.Tensor]): the discrete actions to take (B,),
+                their probability (B,), and their respective predicted values (B,)
+        """
+        with torch.no_grad():
+            probs, vals = self(state)
+        if deterministic:
+            actions = probs.argmax(dim=-1)
+        else:
+            actions = probs.multinomial(1)
+        actions = actions.squeeze()
+
+        return (
+            actions,
+            probs[torch.arange(probs.shape[0]), actions],
+            vals.squeeze(),
+        )
