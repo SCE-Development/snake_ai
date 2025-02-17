@@ -6,12 +6,11 @@ model using the PPO algorithm.
 """
 
 import torch
-from typing import Union
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
 import numpy as np
 from gymnasium.vector import VectorEnv
-from .model import CNNActorCritic, MLPActorCritic
+from .model import ActorCritic
 from tqdm import tqdm
 from torch.utils.tensorboard.writer import SummaryWriter
 from .episodes import collect_samples, EpisodeDataset
@@ -19,7 +18,7 @@ from datetime import datetime
 
 
 def train(
-    model: Union[CNNActorCritic, MLPActorCritic],
+    model: ActorCritic,
     optimizer: Optimizer,
     env: VectorEnv,
     iterations: int,
@@ -43,7 +42,7 @@ def train(
     Train an actor-critic model in the given environment using the PPO algorithm.
 
     Arguments:
-        model (Union[CNNActorCritic, MLPActorCritic]): the actor-critic model to train
+        model (ActorCritic): the actor-critic model to train
         optimizer (Optimizer): the optimizer to use
         env (Env): the environment to train in
         iterations (int): the number of iterations to train

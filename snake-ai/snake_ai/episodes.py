@@ -1,8 +1,8 @@
-from typing import List, Tuple, Union
+from typing import List, Tuple
 from torch.utils.data import Dataset
 from dataclasses import dataclass, field
 from bisect import bisect_right
-from .model import CNNActorCritic, MLPActorCritic
+from .model import ActorCritic
 from gymnasium.vector import VectorEnv
 import numpy as np
 import torch
@@ -80,7 +80,7 @@ class EpisodeDataset(Dataset):
 def collect_samples(
     samples: int,
     t: int,
-    model: Union[CNNActorCritic, MLPActorCritic],
+    model: ActorCritic,
     env: VectorEnv,
     device: str,
 ) -> Tuple[List[EpisodeRecord], float, float]:
@@ -91,7 +91,7 @@ def collect_samples(
     Arguments:
         samples (int): the number of samples to collect
         t (int): the maximum number of samples to collect before resetting the env
-        model (Union[CNNActorCritic, MLPActorCritic]): the actor-critic
+        model (ActorCritic): the actor-critic
         env (Env): the environment to use
         device (str): the device to use
 
