@@ -9,20 +9,21 @@ import torch
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
 import numpy as np
-from gymnasium.vector import VectorEnv
+from gymnasium import Env
 from .model import ActorCritic
 from tqdm import tqdm
 from torch.utils.tensorboard.writer import SummaryWriter
-from .episodes import collect_samples, EpisodeDataset
+from .episodes import prepare_environment, collect_samples, EpisodeDataset
 from datetime import datetime
 
 
 def train(
     model: ActorCritic,
     optimizer: Optimizer,
-    env: VectorEnv,
+    env: Env,
     iterations: int,
     t: int,
+    num_envs: int,
     samples: int,
     batch_size: int,
     epochs: int,
@@ -37,6 +38,7 @@ def train(
     clip_norm_val: float = 2.0,
     normalize_advantages: bool = False,
 ):
+
     # see page 5 of https://arxiv.org/pdf/1707.06347
     """
     Train an actor-critic model in the given environment using the PPO algorithm.
@@ -47,6 +49,7 @@ def train(
         env (Env): the environment to train in
         iterations (int): the number of iterations to train
         t (int): the number of samples to take from each environment
+        num_envs (int): the number of environments to run in parallel
         samples (int): the number of samples to collect per iteration
         batch_size (int): the batch size for training
         epochs (int): the number of epochs to train per iteration
@@ -67,12 +70,14 @@ def train(
     writer.add_scalar("params/batch_size", batch_size, 0)
     writer.add_scalar("params/epochs", epochs, 0)
 
+    env = prepare_environment(env, t, num_envs)
+
     for iteration in range(iterations):
         print(f"iteration {iteration+1}")
         model.eval()
         time_start = datetime.now()
         episodes, mean_reward, mean_length = collect_samples(
-            samples, t, model, env, device
+            samples, model, env, device
         )
         time_end = datetime.now()
         writer.add_scalar("env/mean_reward", mean_reward, i)

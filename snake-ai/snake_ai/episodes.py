@@ -3,7 +3,10 @@ from torch.utils.data import Dataset
 from dataclasses import dataclass, field
 from bisect import bisect_right
 from .model import ActorCritic
-from gymnasium.vector import VectorEnv
+from gymnasium.vector import VectorEnv, SyncVectorEnv
+from gymnasium import Env
+from gymnasium.wrappers.time_limit import TimeLimit
+import copy
 import numpy as np
 import torch
 
@@ -77,9 +80,29 @@ class EpisodeDataset(Dataset):
         return self.total
 
 
+def prepare_environment(env: Env, t: int, num_envs: int):
+    """
+    Returns a vectorized environment where each
+    individual environment is limited to at most t samples
+
+    Arguments:
+        env (Env): the environment to wrap
+        t (int): the maximum number of samples to collect before resetting the env
+        num_envs (int): the number of environments to create
+
+    Returns:
+        env (VectorEnv): the vectorized environment
+    """
+
+    def make_env():
+        c = copy.deepcopy(env)
+        return TimeLimit(c, t)
+
+    return SyncVectorEnv([make_env for _ in range(num_envs)])
+
+
 def collect_samples(
     samples: int,
-    t: int,
     model: ActorCritic,
     env: VectorEnv,
     device: str,
@@ -90,7 +113,6 @@ def collect_samples(
 
     Arguments:
         samples (int): the number of samples to collect
-        t (int): the maximum number of samples to collect before resetting the env
         model (ActorCritic): the actor-critic
         env (Env): the environment to use
         device (str): the device to use
