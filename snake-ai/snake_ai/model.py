@@ -70,13 +70,12 @@ class ActorCritic(nn.Module):
         if deterministic:
             actions = probs.argmax(dim=-1)
         else:
-            actions = probs.multinomial(1)
-        actions = actions.squeeze()
+            actions = probs.multinomial(1).squeeze(dim=-1)
 
         return (
             actions,
             probs[torch.arange(probs.shape[0]), actions],
-            vals.squeeze(),
+            vals.squeeze(dim=-1),
         )
 
 
