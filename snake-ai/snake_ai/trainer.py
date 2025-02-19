@@ -11,7 +11,6 @@ from torch.utils.data import DataLoader
 import numpy as np
 from gymnasium import Env
 from .model import ActorCritic
-from tqdm import tqdm
 from torch.utils.tensorboard.writer import SummaryWriter
 from .episodes import prepare_environment, collect_samples, EpisodeDataset
 from datetime import datetime
@@ -37,6 +36,8 @@ def train(
     clip_norm: bool = True,
     clip_norm_val: float = 2.0,
     normalize_advantages: bool = False,
+    run_name: str = "",
+    print_progress: bool = True,
 ):
 
     # see page 5 of https://arxiv.org/pdf/1707.06347
@@ -59,21 +60,43 @@ def train(
         vcf (float, optional): the value function coefficient. Defaults to 1.0.
         ecf (float, optional): the entropy coefficient. Defaults to 1.0.
         device (str, optional): the device to use (cpu or cuda). Defaults to "cpu".
+        num_workers (int, optional): the number of workers to use. Defaults to 4.
+        clip_norm (bool, optional): whether to clip the gradients. Defaults to True.
+        clip_norm_val (float, optional): the value to use for the norm. Defaults to 2.0.
+        normalize_advantages (bool, optional): whether to normalize the advantages. Defaults to False.
+        run_name (str, optional): the name of the run. Defaults to the current datetime.
+        print_progress (bool, optional): whether to print the progress to standard output. Defaults to True.
     """
     model.to(device)
+
+    if not run_name:
+        run_name = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+
     i = 0
-    writer = SummaryWriter()
-    writer.add_scalar("params/gamma", gamma, 0)
-    writer.add_scalar("params/lambda", lam, 0)
-    writer.add_scalar("params/vcf", vcf, 0)
-    writer.add_scalar("params/ecf", ecf, 0)
-    writer.add_scalar("params/batch_size", batch_size, 0)
-    writer.add_scalar("params/epochs", epochs, 0)
+    writer = SummaryWriter(log_dir=f"runs/{run_name}")
+    writer.add_hparams(
+        {
+            "iterations": iterations,
+            "t": t,
+            "num_envs": num_envs,
+            "samples": samples,
+            "batch_size": batch_size,
+            "epochs": epochs,
+            "gamma": gamma,
+            "lambda": lam,
+            "eps": eps,
+            "vcf": vcf,
+            "ecf": ecf,
+        },
+        {},
+        run_name=run_name,
+    )
 
     env = prepare_environment(env, t, num_envs)
 
     for iteration in range(iterations):
-        print(f"iteration {iteration+1}")
+        if print_progress:
+            print(f"iteration {iteration+1}")
         model.eval()
         time_start = datetime.now()
         episodes, mean_reward, mean_length = collect_samples(
@@ -94,9 +117,13 @@ def train(
         model.train()
         ds = EpisodeDataset(episodes)
         loader = DataLoader(
-            ds, batch_size=batch_size, shuffle=True, num_workers=num_workers
+            ds,
+            batch_size=batch_size,
+            shuffle=True,
+            num_workers=num_workers,
+            pin_memory=True,
+            pin_memory_device=device,
         )
-        prog = tqdm(total=len(loader) * epochs)
         total_loss = 0
         total_lclip = 0
         total_lvf = 0
@@ -132,7 +159,8 @@ def train(
                 ratio = cur_action_probs / torch.where(probs == 0, 1e-8, probs)
                 # paper says we want to maximize this, so therefore just negate it
                 lclip = -torch.minimum(
-                    ratio * advantages, torch.clip(ratio, 1 - eps, 1 + eps) * advantages
+                    ratio * advantages,
+                    torch.clip(ratio, 1 - eps, 1 + eps) * advantages,
                 ).mean()
 
                 # calculate lvf
@@ -140,7 +168,7 @@ def train(
 
                 # calculate entropy bonus
                 # encourage low probabilities for the current actions
-                # (log of probability is a negative number, smaller probability -> smaller log)
+                # (log of probability is a negative number, smaller probability -> more negative log)
                 lentropy = torch.log(cur_action_probs).mean()
 
                 # backpropagate
@@ -155,16 +183,6 @@ def train(
                 lclip = lclip.detach().item()
                 lvf = lvf.detach().item()
                 lentropy = lentropy.detach().item()
-                prog.set_postfix(
-                    {
-                        "loss": loss,
-                        "lclip": lclip,
-                        "lvf": lvf,
-                        "lentropy": lentropy,
-                    }
-                )
-                prog.update()
-                prog.display()
                 total_loss += loss
                 total_lclip += lclip
                 total_lvf += lvf
@@ -182,7 +200,9 @@ def train(
                     "train/mean_original_probs", probs.mean().detach().item(), i
                 )
                 writer.add_scalar(
-                    "train/mean_new_probs", cur_action_probs.mean().detach().item(), i
+                    "train/mean_new_probs",
+                    cur_action_probs.mean().detach().item(),
+                    i,
                 )
                 writer.add_scalar(
                     "train/advantages", advantages.mean().detach().item(), i
@@ -193,12 +213,12 @@ def train(
                 i += 1
                 total_items += 1
         # more logging
-        prog.close()
-        print(
-            f"Average epoch loss {total_loss/total_items:.4f},",
-            f"lclip {total_lclip/total_items:.4f},",
-            f"lvf {total_lvf/total_items:.4f},",
-            f"lent {total_lentropy/total_items:.4f}",
-        )
+        if print_progress:
+            print(
+                f"Average epoch loss {total_loss/total_items:.4f},",
+                f"lclip {total_lclip/total_items:.4f},",
+                f"lvf {total_lvf/total_items:.4f},",
+                f"lent {total_lentropy/total_items:.4f}",
+            )
 
     model.eval()

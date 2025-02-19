@@ -166,17 +166,20 @@ class MLPActorCritic(ActorCritic):
 
         self.softmax = nn.Softmax(dim=1)
 
-        self.shared = nn.Sequential(
+        self.shared = nn.Sequential()
+
+        self.prob_dense = nn.Sequential(
             nn.Linear(state_dim, hidden_dim),
             nn.GELU(),
             nn.Linear(hidden_dim, hidden_dim),
             nn.GELU(),
-        )
-
-        self.prob_dense = nn.Sequential(
             nn.Linear(hidden_dim, num_actions),
         )
         self.val_dense = nn.Sequential(
+            nn.Linear(state_dim, hidden_dim),
+            nn.GELU(),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.GELU(),
             nn.Linear(hidden_dim, 1),
         )
 
