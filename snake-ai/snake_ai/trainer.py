@@ -14,6 +14,7 @@ from .model import ActorCritic
 from torch.utils.tensorboard.writer import SummaryWriter
 from .episodes import prepare_environment, collect_samples, EpisodeDataset
 from datetime import datetime
+import os
 
 
 def train(
@@ -38,6 +39,7 @@ def train(
     normalize_advantages: bool = False,
     run_name: str = "",
     print_progress: bool = True,
+    save_every: int = 0,
 ):
 
     # see page 5 of https://arxiv.org/pdf/1707.06347
@@ -66,15 +68,16 @@ def train(
         normalize_advantages (bool, optional): whether to normalize the advantages. Defaults to False.
         run_name (str, optional): the name of the run. Defaults to the current datetime.
         print_progress (bool, optional): whether to print the progress to standard output. Defaults to True.
+        save_every (int, optional): how often, in iterations, to save the model's weights
     """
     model.to(device)
 
     if not run_name:
         run_name = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
-    i = 0
-    writer = SummaryWriter(log_dir=f"runs/{run_name}")
-    writer.add_hparams(
+    # log hparams
+    hparams_writer = SummaryWriter(log_dir="runs")
+    hparams_writer.add_hparams(
         {
             "iterations": iterations,
             "t": t,
@@ -91,7 +94,21 @@ def train(
         {},
         run_name=run_name,
     )
+    hparams_writer.close()  # close hparam writer
+    # and clean up extra tfevents file
+    to_remove = []
+    for file in os.listdir("runs"):
+        if file.startswith("events.out.tfevents") and os.path.isfile(
+            os.path.join("runs", file)
+        ):
+            to_remove.append(file)
+    for file in to_remove:
+        os.remove(os.path.join("runs", file))
+    # and finally create actual writer
+    writer = SummaryWriter(log_dir=os.path.join("runs", run_name))
 
+    # prepare environment and initialize i (optimization step)
+    i = 0
     env = prepare_environment(env, t, num_envs)
 
     for iteration in range(iterations):
@@ -135,7 +152,7 @@ def train(
                 optimizer.zero_grad()
 
                 # get batch data
-                states, actions, probs, target_values, advantages = (
+                states, actions, log_probs, target_values, advantages = (
                     batch["states"].to(device),
                     batch["actions"].to(device),
                     batch["probs"].to(device),
@@ -150,13 +167,16 @@ def train(
                     )
 
                 # predict
-                pred_probs, pred_vals = model(states)
+                pred_log_probs, pred_vals = model(states)
 
                 # calculate lclip
-                cur_action_probs = pred_probs[
-                    torch.arange(pred_probs.shape[0]), actions
+                cur_action_log_probs: torch.Tensor = pred_log_probs[
+                    torch.arange(pred_log_probs.shape[0]), actions
                 ]
-                ratio = cur_action_probs / torch.where(probs == 0, 1e-8, probs)
+                # a / b = e**(log(a) - log(b))
+                # apparently this has higher numerical stability and will avoid the
+                # nan's that we sometimes got when working with raw probs
+                ratio = torch.exp(cur_action_log_probs - log_probs)
                 # paper says we want to maximize this, so therefore just negate it
                 lclip = -torch.minimum(
                     ratio * advantages,
@@ -169,7 +189,7 @@ def train(
                 # calculate entropy bonus
                 # encourage low probabilities for the current actions
                 # (log of probability is a negative number, smaller probability -> more negative log)
-                lentropy = torch.log(cur_action_probs).mean()
+                lentropy = cur_action_log_probs.mean()
 
                 # backpropagate
                 loss = lclip + vcf * lvf + ecf * lentropy
@@ -188,7 +208,7 @@ def train(
                 total_lvf += lvf
                 total_lentropy += lentropy
                 if np.isnan(loss):
-                    print(pred_probs)
+                    print(pred_log_probs)
                     print(pred_vals)
                     raise Exception("NAN Values!")
                 writer.add_scalar("train/loss", loss, i)
@@ -197,11 +217,13 @@ def train(
                 writer.add_scalar("train/lentropy", lentropy, i)
                 writer.add_scalar("train/mean_ratio", ratio.mean().detach().item(), i)
                 writer.add_scalar(
-                    "train/mean_original_probs", probs.mean().detach().item(), i
+                    "train/mean_original_probs",
+                    torch.exp(log_probs).mean().detach().item(),
+                    i,
                 )
                 writer.add_scalar(
                     "train/mean_new_probs",
-                    cur_action_probs.mean().detach().item(),
+                    torch.exp(cur_action_log_probs).mean().detach().item(),
                     i,
                 )
                 writer.add_scalar(
@@ -220,5 +242,10 @@ def train(
                 f"lvf {total_lvf/total_items:.4f},",
                 f"lent {total_lentropy/total_items:.4f}",
             )
+        writer.add_scalar("train/iteration", iteration, i)
+        if save_every != 0 and iteration != 0 and iteration % save_every == 0:
+            model.cpu()
+            torch.save(model.state_dict(), f"{run_name}-iteration-{iteration}.pt")
+            model.to(device)
 
     model.eval()

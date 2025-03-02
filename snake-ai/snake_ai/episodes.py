@@ -18,6 +18,8 @@ class EpisodeRecord:
     rewards: torch.Tensor
     actions: torch.Tensor
     probs: torch.Tensor
+    last_value: float
+    terminated: bool
     advantages: torch.Tensor = field(init=False)
     target_values: torch.Tensor = field(init=False)
     T: int = field(init=False)
@@ -32,7 +34,14 @@ class EpisodeRecord:
         deltas = []
         for t in range(self.T - 1):
             deltas.append(self.rewards[t] + gamma * self.values[t + 1] - self.values[t])
-        deltas.append(0)
+        # terminated -> actually end
+        # otherwise, truncated, so pretend it didn't end
+        deltas.append(
+            self.rewards[self.T - 1]
+            - self.values[t]
+            + (0.0 if self.terminated else self.last_value)
+        )
+        assert len(deltas) == self.T
 
         # instead of doing the N^2 version of calculating advantages,
         # go from the back instead
@@ -42,6 +51,7 @@ class EpisodeRecord:
         for t in range(self.T - 2, -1, -1):
             advantages[t] = deltas[t] + (lam * gamma) * advantages[t + 1]
         self.advantages = advantages
+        assert self.advantages.shape[0] == self.T
 
         # also calculate target values
         # target value should just be the discounted future reward
@@ -59,7 +69,7 @@ class EpisodeDataset(Dataset):
         for record in records:
             self.starts.append(cur)
             # there's actually only T-1 observations (since only T-1 advantages)
-            cur += record.T - 1
+            cur += record.T
         self.total = cur  # total amount of observations
 
     def __getitem__(self, index):
@@ -140,40 +150,49 @@ def collect_samples(
         # take current and prepare to step
         for e in range(env.num_envs):
             cur_states[e].append(obs[e])
-        action, prob, value = model.predict_batched(
+        actions, log_probs, values = model.predict_batched(
             torch.tensor(obs).to(device), deterministic=False
         )
-        action = action.cpu().numpy()
-        prob = prob.cpu().numpy()
-        value = value.cpu().numpy()
+        actions = actions.cpu().numpy()
+        log_probs = log_probs.cpu().numpy()
+        values = values.cpu().numpy()
 
         for e in range(env.num_envs):
-            cur_values[e].append(value[e])
-            cur_actions[e].append(action[e])
-            cur_probs[e].append(prob[e])
+            cur_values[e].append(values[e])
+            cur_actions[e].append(actions[e])
+            cur_probs[e].append(log_probs[e])
 
         # step in the environment
-        obs, reward, terminated, truncated, _ = env.step(action)
+        obs, reward, terminated, truncated, info = env.step(actions)
         for e in range(env.num_envs):
             cur_rewards[e].append(reward[e])
             cur_reward[e] += reward[e]
 
         for e in range(env.num_envs):
             if terminated[e] or truncated[e]:
+                assert cur_length[e] > 2
                 logged_samples += cur_length[e]
-                if cur_length[e] > 2:
-                    # new episode
-                    records.append(
-                        EpisodeRecord(
-                            states=torch.from_numpy(np.array(cur_states[e])),
-                            values=torch.tensor(cur_values[e]),
-                            rewards=torch.tensor(cur_rewards[e]),
-                            actions=torch.tensor(cur_actions[e]),
-                            probs=torch.tensor(cur_probs[e]),
-                        )
+
+                final_value = 0.0
+                if truncated[e]:
+                    # calculate final value by using model
+                    next_obs = info["final_observation"][e]
+                    _, _, final_value = model.predict(torch.tensor(next_obs).to(device))
+
+                # new episode
+                records.append(
+                    EpisodeRecord(
+                        states=torch.from_numpy(np.array(cur_states[e])),
+                        values=torch.tensor(cur_values[e]),
+                        rewards=torch.tensor(cur_rewards[e]),
+                        actions=torch.tensor(cur_actions[e]),
+                        probs=torch.tensor(cur_probs[e]),
+                        last_value=final_value,
+                        terminated=terminated[e],
                     )
-                    total_reward += cur_reward[e]
-                    total_length += cur_length[e]
+                )
+                total_reward += cur_reward[e]
+                total_length += cur_length[e]
 
                 # environments autoreset, so simply take care of these
                 cur_rewards[e] = []
@@ -184,18 +203,18 @@ def collect_samples(
             cur_length[e] += 1
 
     # in case we have extra remaining that we didn't include in the list yet
-    for e in range(env.num_envs):
-        if cur_length[e] > 2:
-            # new episode
-            records.append(
-                EpisodeRecord(
-                    states=torch.tensor(np.array(cur_states[e])),
-                    values=torch.tensor(cur_values[e]),
-                    rewards=torch.tensor(cur_rewards[e]),
-                    actions=torch.tensor(cur_actions[e]),
-                    probs=torch.tensor(cur_probs[e]),
-                )
-            )
-            total_reward += cur_reward[e]
-            total_length += cur_length[e]
+    # for e in range(env.num_envs):
+    #     if cur_length[e] > 2:
+    #         # new episode
+    #         records.append(
+    #             EpisodeRecord(
+    #                 states=torch.tensor(np.array(cur_states[e])),
+    #                 values=torch.tensor(cur_values[e]),
+    #                 rewards=torch.tensor(cur_rewards[e]),
+    #                 actions=torch.tensor(cur_actions[e]),
+    #                 probs=torch.tensor(cur_probs[e]),
+    #             )
+    #         )
+    #         total_reward += cur_reward[e]
+    #         total_length += cur_length[e]
     return records, total_reward / len(records), total_length / len(records)

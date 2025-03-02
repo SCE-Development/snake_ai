@@ -21,6 +21,8 @@ class SnakeEnv(gym.Env):
     BODY = 1
     HEAD = 2
     FOOD = 3
+    WALL = 4
+    OVERLAP = 5
 
     # game constants
     SIZE_X = 72
@@ -31,14 +33,13 @@ class SnakeEnv(gym.Env):
 
     # action space
     action_space = gym.spaces.Discrete(4)  # up, down, left, right
-    # 0 is empty, 1 is body, 2 is body head, 3 is food
     observation_space = gym.spaces.Box(
-        low=0, high=3, shape=(SIZE_X + 2, SIZE_Y + 2, 4), dtype=np.uint8
+        low=0, high=1, shape=(SIZE_X + 2, SIZE_Y + 2, 6), dtype=np.uint8
     )
-    REWARD_SCALE = 0.1
-    EAT_REWARD = 50
-    DEATH_PENALTY = 100
-    INVALID_PENALTY = 10
+    REWARD_SCALE = 0
+    EAT_REWARD = 1
+    DEATH_PENALTY = 1
+    INVALID_PENALTY = 0
 
     # display related constants
     FRAME_SCALE = 10
@@ -98,14 +99,15 @@ class SnakeEnv(gym.Env):
         """
         Keep trying to spawn food until it is not on the snake
         """
+        # TODO - what if all those spaces are taken?
         self.food_pos = [
-            self.np_random.integers(1, (self.SIZE_X)),
-            self.np_random.integers(1, (self.SIZE_Y)),
+            self.np_random.integers(self.OFFSET, self.SIZE_X - self.OFFSET),
+            self.np_random.integers(self.OFFSET, self.SIZE_Y - self.OFFSET),
         ]
         while self.food_pos in self.snake_body:
             self.food_pos = [
-                self.np_random.integers(1, (self.SIZE_X)),
-                self.np_random.integers(1, (self.SIZE_Y)),
+                self.np_random.integers(self.OFFSET, self.SIZE_X - self.OFFSET),
+                self.np_random.integers(self.OFFSET, self.SIZE_Y - self.OFFSET),
             ]
 
     def step(self, action: int) -> Tuple[np.ndarray, int, bool, bool, dict[str, Any]]:
@@ -164,13 +166,15 @@ class SnakeEnv(gym.Env):
         dist = abs(self.snake_pos[0] - self.food_pos[0]) + abs(
             self.snake_pos[1] - self.food_pos[1]
         )
-        reward += self.REWARD_SCALE * ((self.SIZE_X + self.SIZE_Y) / 3 - dist)
+        if reward >= 0:
+            reward += self.REWARD_SCALE * (self.SIZE_X + self.SIZE_Y - dist)
         if (
             self.snake_pos[0] == self.food_pos[0]
             and self.snake_pos[1] == self.food_pos[1]
         ):
             self.score += 1
-            reward += self.EAT_REWARD
+            if reward >= 0:
+                reward += self.EAT_REWARD
             self._spawn_food()
         else:
             self.snake_body.pop()
@@ -195,12 +199,26 @@ class SnakeEnv(gym.Env):
 
     def _get_obs(self):
         # +2 for walls
-        observation = np.zeros((self.SIZE_X + 2, self.SIZE_Y + 2, 4), dtype=np.uint8)
-        observation[self.snake_pos[0] + 1, self.snake_pos[1] + 1, self.HEAD] = 1
+        # zeros because that's self.EMPTY
+        observation = np.zeros((self.SIZE_X + 2, self.SIZE_Y + 2), dtype=np.uint8)
+        # boundaries
+        observation[:, 0] = self.WALL
+        observation[:, -1] = self.WALL
+        observation[0, :] = self.WALL
+        observation[-1, :] = self.WALL
+
+        # head
+        if observation[self.snake_pos[0] + 1, self.snake_pos[1] + 1] != self.WALL:
+            observation[self.snake_pos[0] + 1, self.snake_pos[1] + 1] = self.HEAD
+        else:
+            observation[self.snake_pos[0] + 1, self.snake_pos[1] + 1] = self.OVERLAP
+        # body and food
         for x, y in list(self.snake_body)[1:]:
-            observation[x + 1, y + 1, self.BODY] = 1
-        observation[self.food_pos[0] + 1, self.food_pos[1] + 1, self.FOOD] = 1
-        return observation
+            if observation[x + 1, y + 1] == self.HEAD:
+                observation[x + 1, y + 1] = self.OVERLAP
+            observation[x + 1, y + 1] = self.BODY
+        observation[self.food_pos[0] + 1, self.food_pos[1] + 1] = self.FOOD
+        return np.eye(6, dtype=np.uint8)[observation]
 
     def _get_info(self):
         return {"score": self.score}
