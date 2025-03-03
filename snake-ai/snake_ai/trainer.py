@@ -41,6 +41,7 @@ def train(
     run_name: str = "",
     print_progress: bool = True,
     save_every: int = 0,
+    save_best: bool = False,
 ):
 
     # see page 5 of https://arxiv.org/pdf/1707.06347
@@ -71,6 +72,7 @@ def train(
         run_name (str, optional): the name of the run. Defaults to the current datetime.
         print_progress (bool, optional): whether to print the progress to standard output. Defaults to True.
         save_every (int, optional): how often, in iterations, to save the model's weights
+        save_best (bool, optional): whether to save the best model. Defaults to False.
     """
     model.to(device)
 
@@ -109,8 +111,9 @@ def train(
     # and finally create actual writer
     writer = SummaryWriter(log_dir=os.path.join("runs", run_name))
 
-    # prepare environment and initialize i (optimization step)
+    # prepare environment and initialize vars
     i = 0
+    best_score = -float("inf")
     env = prepare_environment(env, t, num_envs, num_stack)
 
     for iteration in range(iterations):
@@ -126,6 +129,18 @@ def train(
         writer.add_scalar(
             "env/collection_time", (time_end - time_start).total_seconds(), i
         )
+        if print_progress:
+            print(
+                f"Mean reward: {the_samples.mean_reward:.2f},",
+                f"Mean length: {the_samples.mean_length:.2f},",
+                f"Mean score: {the_samples.mean_score:.2f},",
+                f"Collection time: {(time_end - time_start).total_seconds():.2f}",
+            )
+        if save_best and the_samples.mean_score > best_score:
+            best_score = the_samples.mean_score
+            model.cpu()
+            torch.save(model.state_dict(), f"{run_name}-best.pt")
+            model.to(device)
 
         # calculate advantages
         for episode in the_samples.episodes:
@@ -153,6 +168,7 @@ def train(
         total_lvf = 0
         total_lentropy = 0
         total_items = 0
+        time_start = datetime.now()
         for _ in range(epochs):
             for batch in loader:
                 # clear old gradients
@@ -222,27 +238,34 @@ def train(
                 writer.add_scalar("train/lclip", lclip, i)
                 writer.add_scalar("train/lvf", lvf, i)
                 writer.add_scalar("train/lentropy", lentropy, i)
-                writer.add_scalar("train/mean_ratio", ratio.mean().detach().item(), i)
+                writer.add_scalar("train/mean_ratio", ratio.detach().mean().item(), i)
                 writer.add_scalar(
                     "train/mean_original_probs",
-                    torch.exp(log_probs).mean().detach().item(),
+                    torch.exp(log_probs.detach()).mean().item(),
                     i,
                 )
                 writer.add_scalar(
                     "train/mean_new_probs",
-                    torch.exp(cur_action_log_probs).mean().detach().item(),
+                    torch.exp(cur_action_log_probs.detach()).mean().item(),
                     i,
                 )
                 writer.add_scalar(
-                    "train/advantages", advantages.mean().detach().item(), i
+                    "train/advantages", advantages.detach().mean().item(), i
                 )
                 writer.add_scalar(
-                    "train/target_values", target_values.mean().detach().item(), i
+                    "train/target_values", target_values.detach().mean().item(), i
                 )
                 i += 1
                 total_items += 1
         # more logging
+        time_end = datetime.now()
         if print_progress:
+            print(
+                f"Epoch time: {(time_end - time_start).total_seconds():.2f}",
+                f"Mean old probs {torch.exp(log_probs.detach()).mean().item()},",
+                f"Mean new probs {torch.exp(cur_action_log_probs.detach()).mean().item()},",
+                f"Mean target values {target_values.detach().mean().item()},",
+            )
             print(
                 f"Average epoch loss {total_loss/total_items:.4f},",
                 f"lclip {total_lclip/total_items:.4f},",

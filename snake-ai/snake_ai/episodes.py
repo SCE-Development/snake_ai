@@ -1,3 +1,10 @@
+"""
+File: episodes.py
+
+This file contains the code for collecting and processing
+episodes from an environment.
+"""
+
 from dataclasses import dataclass, field
 from .model import ActorCritic
 from gymnasium.vector import VectorEnv, SyncVectorEnv
