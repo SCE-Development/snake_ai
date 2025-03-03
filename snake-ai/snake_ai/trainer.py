@@ -7,12 +7,12 @@ model using the PPO algorithm.
 
 import torch
 from torch.optim import Optimizer
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, TensorDataset
 import numpy as np
 from gymnasium import Env
 from .model import ActorCritic
 from torch.utils.tensorboard.writer import SummaryWriter
-from .episodes import prepare_environment, collect_samples, EpisodeDataset
+from .episodes import prepare_environment, collect_samples
 from datetime import datetime
 import os
 
@@ -24,6 +24,7 @@ def train(
     iterations: int,
     t: int,
     num_envs: int,
+    num_stack: int,
     samples: int,
     batch_size: int,
     epochs: int,
@@ -53,6 +54,7 @@ def train(
         iterations (int): the number of iterations to train
         t (int): the number of samples to take from each environment
         num_envs (int): the number of environments to run in parallel
+        num_stack (int): the number of frames to stack
         samples (int): the number of samples to collect per iteration
         batch_size (int): the batch size for training
         epochs (int): the number of epochs to train per iteration
@@ -109,30 +111,35 @@ def train(
 
     # prepare environment and initialize i (optimization step)
     i = 0
-    env = prepare_environment(env, t, num_envs)
+    env = prepare_environment(env, t, num_envs, num_stack)
 
     for iteration in range(iterations):
         if print_progress:
             print(f"iteration {iteration+1}")
         model.eval()
         time_start = datetime.now()
-        episodes, mean_reward, mean_length = collect_samples(
-            samples, model, env, device
-        )
+        the_samples = collect_samples(samples, model, env, device)
         time_end = datetime.now()
-        writer.add_scalar("env/mean_reward", mean_reward, i)
-        writer.add_scalar("env/mean_length", mean_length, i)
+        writer.add_scalar("env/mean_reward", the_samples.mean_reward, i)
+        writer.add_scalar("env/mean_length", the_samples.mean_length, i)
+        writer.add_scalar("env/mean_score", the_samples.mean_score, i)
         writer.add_scalar(
             "env/collection_time", (time_end - time_start).total_seconds(), i
         )
 
         # calculate advantages
-        for episode in episodes:
+        for episode in the_samples.episodes:
             episode.calculate(gamma, lam)
 
         # fit actor and critic
         model.train()
-        ds = EpisodeDataset(episodes)
+        ds = TensorDataset(
+            torch.cat([episode.states for episode in the_samples.episodes]),
+            torch.cat([episode.actions for episode in the_samples.episodes]),
+            torch.cat([episode.probs for episode in the_samples.episodes]),
+            torch.cat([episode.target_values for episode in the_samples.episodes]),
+            torch.cat([episode.advantages for episode in the_samples.episodes]),
+        )
         loader = DataLoader(
             ds,
             batch_size=batch_size,
@@ -152,13 +159,13 @@ def train(
                 optimizer.zero_grad()
 
                 # get batch data
-                states, actions, log_probs, target_values, advantages = (
-                    batch["states"].to(device),
-                    batch["actions"].to(device),
-                    batch["probs"].to(device),
-                    batch["target_values"].to(device),
-                    batch["advantages"].to(device),
-                )
+                states, actions, log_probs, target_values, advantages = batch
+                # to device
+                states = states.to(device)
+                actions = actions.to(device)
+                log_probs = log_probs.to(device)
+                target_values = target_values.to(device)
+                advantages = advantages.to(device)
 
                 # normalize advantages
                 if normalize_advantages and advantages.shape[0] > 1:

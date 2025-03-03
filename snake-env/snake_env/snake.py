@@ -92,6 +92,7 @@ class SnakeEnv(gym.Env):
 
         self.direction = self.ACTION_MAP[orientation]
         self.score = 0
+        self.delta_score = 0
 
         return self._get_obs(), self._get_info()
 
@@ -173,10 +174,12 @@ class SnakeEnv(gym.Env):
             and self.snake_pos[1] == self.food_pos[1]
         ):
             self.score += 1
+            self.delta_score = 1
             if reward >= 0:
                 reward += self.EAT_REWARD
             self._spawn_food()
         else:
+            self.delta_score = 0
             self.snake_body.pop()
 
         # Game Over conditions
@@ -221,7 +224,7 @@ class SnakeEnv(gym.Env):
         return np.eye(6, dtype=np.uint8)[observation]
 
     def _get_info(self):
-        return {"score": self.score}
+        return {"score": self.score, "delta_score": self.delta_score}
 
     def render(self):
         if self.render_mode == "human":
