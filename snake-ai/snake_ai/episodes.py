@@ -7,7 +7,7 @@ episodes from an environment.
 
 from dataclasses import dataclass, field
 from .model import ActorCritic
-from gymnasium.vector import VectorEnv, SyncVectorEnv
+from gymnasium.vector import VectorEnv, SyncVectorEnv, AutoresetMode
 from gymnasium import Env
 from gymnasium.wrappers import TimeLimit
 from gymnasium.wrappers import FrameStackObservation
@@ -90,7 +90,9 @@ def prepare_environment(env: Env, t: int, num_envs: int, num_stack: int):
         c = FrameStackObservation(c, num_stack)
         return TimeLimit(c, t)
 
-    return SyncVectorEnv([make_env for _ in range(num_envs)])
+    return SyncVectorEnv(
+        [make_env for _ in range(num_envs)], autoreset_mode=AutoresetMode.SAME_STEP
+    )
 
 
 def collect_samples(
@@ -155,7 +157,7 @@ def collect_samples(
                 final_value = 0.0
                 if truncated[e]:
                     # calculate final value by using model
-                    next_obs = info["final_observation"][e]
+                    next_obs = info["final_obs"][e]
                     _, _, final_value = model.predict(
                         torch.tensor(np.array(next_obs)).to(device)
                     )
