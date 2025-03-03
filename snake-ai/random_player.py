@@ -1,3 +1,10 @@
+"""
+File: random_player.py
+
+This file contains an interface to play the snake game
+using random actions.
+"""
+
 import snake_env
 import numpy as np
 import gymnasium as gym

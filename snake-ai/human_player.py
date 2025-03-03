@@ -1,3 +1,10 @@
+"""
+File: human_player.py
+
+This file contains an interface to play the snake game
+using the human keyboard controls.
+"""
+
 import snake_env
 import gymnasium as gym
 import pygame
