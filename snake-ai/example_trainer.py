@@ -26,6 +26,7 @@ if __name__ == "__main__":
     train(
         model=model,
         optimizer=optim,
+        env=env,
         iterations=2048,
         t=2048,
         num_envs=16,
@@ -42,7 +43,7 @@ if __name__ == "__main__":
         device="cuda",
         normalize_advantages=False,
         num_workers=12,
-        print_progress=False,
+        print_progress=True,
         clip_norm=False,
         run_name="",
         save_every=32,
