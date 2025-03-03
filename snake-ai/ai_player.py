@@ -1,6 +1,6 @@
 from snake_ai.model import CustomCNNActorCritic
 import gymnasium as gym
-from gymnasium.wrappers.frame_stack import FrameStack
+from gymnasium.wrappers import FrameStackObservation
 import pygame
 import torch
 import snake_env
@@ -44,7 +44,7 @@ if __name__ == "__main__":
     model.to(device)
 
     # stack into a frame stack
-    env = FrameStack(env, frame_stack)
+    env = FrameStackObservation(env, frame_stack)
     obs, _ = env.reset()
     clock = pygame.time.Clock()
     good = True

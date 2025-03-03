@@ -9,8 +9,8 @@ from dataclasses import dataclass, field
 from .model import ActorCritic
 from gymnasium.vector import VectorEnv, SyncVectorEnv
 from gymnasium import Env
-from gymnasium.wrappers.time_limit import TimeLimit
-from gymnasium.wrappers.frame_stack import FrameStack
+from gymnasium.wrappers import TimeLimit
+from gymnasium.wrappers import FrameStackObservation
 import copy
 import numpy as np
 import torch
@@ -87,7 +87,7 @@ def prepare_environment(env: Env, t: int, num_envs: int, num_stack: int):
 
     def make_env():
         c = copy.deepcopy(env)
-        c = FrameStack(c, num_stack)
+        c = FrameStackObservation(c, num_stack)
         return TimeLimit(c, t)
 
     return SyncVectorEnv([make_env for _ in range(num_envs)])
