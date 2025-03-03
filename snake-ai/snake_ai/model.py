@@ -12,6 +12,10 @@ from copy import deepcopy
 
 
 class ActorCritic(nn.Module):
+    """
+    Base class for actor-critic models
+    """
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -81,6 +85,10 @@ class ActorCritic(nn.Module):
 
 
 class CNNActorCritic(ActorCritic):
+    """
+    Generic CNN actor-critic
+    """
+
     def __init__(
         self,
         input_shape: Tuple[int, int, int],
@@ -161,6 +169,10 @@ class CNNActorCritic(ActorCritic):
 
 
 class MLPActorCritic(ActorCritic):
+    """
+    Generic MLP actor-critic
+    """
+
     def __init__(
         self,
         num_actions: int,
@@ -207,4 +219,90 @@ class MLPActorCritic(ActorCritic):
         # calculate probability logits and value
         log_probs = self.log_softmax(self.prob_dense(x))
         vals = self.val_dense(x)
+        return log_probs, vals
+
+
+class CustomCNNActorCritic(ActorCritic):
+    """
+    Custom CNN actor-critic made specifically for the snake game
+    """
+
+    def __init__(
+        self,
+        input_shape: Tuple[int, int, int, int],
+        num_actions: int,
+        hidden_dim: int,
+        dropout_rate: float = 0.1,
+    ):
+        # D, D, H, W, C
+        # convolutional network
+        super(CustomCNNActorCritic, self).__init__()
+        self.log_softmax = nn.LogSoftmax(dim=1)
+
+        self.dropout = nn.Dropout(dropout_rate)
+        self.initial_prob = nn.Conv3d(input_shape[-1], 32, (input_shape[0], 8, 8))
+        self.initial_val = nn.Conv3d(input_shape[-1], 32, (input_shape[0], 8, 8))
+        self.prob_module = nn.Sequential(
+            nn.Dropout(dropout_rate),
+            nn.SELU(),
+            nn.MaxPool2d(3, 2),
+            nn.Conv2d(32, 64, (8, 8)),
+            nn.SELU(),
+            nn.Dropout(dropout_rate),
+            nn.MaxPool2d(3, 2),
+            nn.Conv2d(64, 64, (4, 4)),
+            nn.Dropout(dropout_rate),
+            nn.SELU(),
+            nn.Flatten(start_dim=1),
+            nn.Linear(1728, hidden_dim),
+            nn.GELU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.GELU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(hidden_dim, num_actions),
+        )
+        self.val_module = nn.Sequential(
+            nn.Dropout(dropout_rate),
+            nn.SELU(),
+            nn.MaxPool2d(3, 2),
+            nn.Conv2d(32, 64, (8, 8)),
+            nn.SELU(),
+            nn.Dropout(dropout_rate),
+            nn.MaxPool2d(3, 2),
+            nn.Conv2d(64, 64, (4, 4)),
+            nn.Dropout(dropout_rate),
+            nn.SELU(),
+            nn.Flatten(start_dim=1),
+            nn.Linear(1728, hidden_dim),
+            nn.GELU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.GELU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(hidden_dim, 1),
+        )
+
+    def forward(self, states: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Calls the model to predict the action probabilities and values B states
+
+        Arguments:
+            states (torch.Tensor): the states to predict action probabilities
+                for. Shape should be (B, frame_stack, *state_dims)
+
+        Returns:
+            items (Tuple[torch.Tensor, torch.Tensor]): a tuple of (probabilities, values), where
+                probabilities is a tensor of the shape (B, action_space) and values is a tensor
+                of the shape (B,)
+        """
+
+        # B, D, H, W, C -> B, C, D, H, W
+        x = states.float().permute(0, 4, 1, 2, 3).contiguous()
+
+        # calculate probability logits and value
+        x_prob = self.initial_prob(x).squeeze(2)
+        x_val = self.initial_val(x).squeeze(2)
+        log_probs = self.log_softmax(self.prob_module(x_prob))
+        vals = self.val_module(x_val)
         return log_probs, vals
