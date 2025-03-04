@@ -198,7 +198,7 @@ def collect_samples(
 
     if not only_use_finished:
         for e in range(env.num_envs):
-            if cur_length[e] > 1:
+            if cur_length[e] > 2:
                 # calculate final value by using model
                 _, _, final_value = model.predict(
                     torch.tensor(np.array(obs[e])).to(device)
