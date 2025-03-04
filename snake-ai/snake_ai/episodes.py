@@ -7,7 +7,7 @@ episodes from an environment.
 
 from dataclasses import dataclass, field
 from .model import ActorCritic
-from gymnasium.vector import VectorEnv, SyncVectorEnv, AutoresetMode
+from gymnasium.vector import VectorEnv, SyncVectorEnv, AsyncVectorEnv, AutoresetMode
 from gymnasium import Env
 from gymnasium.wrappers import TimeLimit
 from gymnasium.wrappers import FrameStackObservation
@@ -71,7 +71,9 @@ class Samples:
     mean_score: float
 
 
-def prepare_environment(env: Env, t: int, num_envs: int, num_stack: int):
+def prepare_environment(
+    env: Env, t: int, num_envs: int, num_stack: int, use_async_vector_env: bool
+):
     """
     Returns a vectorized environment where each
     individual environment is limited to at most t samples
@@ -80,6 +82,8 @@ def prepare_environment(env: Env, t: int, num_envs: int, num_stack: int):
         env (Env): the environment to wrap
         t (int): the maximum number of samples to collect before resetting the env
         num_envs (int): the number of environments to create
+        num_stack (int): the number of frames to stack
+        use_async_vector_env (bool): whether to use a vectorized environment
 
     Returns:
         env (VectorEnv): the vectorized environment
@@ -90,7 +94,8 @@ def prepare_environment(env: Env, t: int, num_envs: int, num_stack: int):
         c = FrameStackObservation(c, num_stack)
         return TimeLimit(c, t)
 
-    return SyncVectorEnv(
+    cls = AsyncVectorEnv if use_async_vector_env else SyncVectorEnv
+    return cls(
         [make_env for _ in range(num_envs)], autoreset_mode=AutoresetMode.SAME_STEP
     )
 
@@ -100,6 +105,7 @@ def collect_samples(
     model: ActorCritic,
     env: VectorEnv,
     device: str,
+    only_use_finished: bool = False,
 ) -> Samples:
     """
     Collects `samples` samples from the environment, resetting it at first
@@ -110,6 +116,7 @@ def collect_samples(
         model (ActorCritic): the actor-critic
         env (Env): the environment to use
         device (str): the device to use
+        only_use_finished (bool): whether to only use finished episodes
 
     Returns:
         ret (Samples): the collected samples
@@ -174,7 +181,8 @@ def collect_samples(
                         terminated=terminated[e],
                     )
                 )
-                total_length += cur_length[e]
+                if only_use_finished:
+                    total_length += cur_length[e]
 
                 # environments autoreset, so simply take care of these
                 cur_states[e] = []
@@ -184,6 +192,31 @@ def collect_samples(
                 cur_probs[e] = []
                 cur_length[e] = 0
             cur_length[e] += 1
+
+        if not only_use_finished:
+            total_length += env.num_envs
+
+    if not only_use_finished:
+        for e in range(env.num_envs):
+            if len(cur_states[e]) > 1:
+                # calculate final value by using model
+                _, _, final_value = model.predict(
+                    torch.tensor(np.array(obs[e])).to(device)
+                )
+
+                # new episode
+                records.append(
+                    EpisodeRecord(
+                        states=torch.from_numpy(np.array(cur_states[e])),
+                        values=torch.tensor(cur_values[e]),
+                        rewards=torch.tensor(cur_rewards[e]),
+                        actions=torch.tensor(cur_actions[e]),
+                        probs=torch.tensor(cur_probs[e]),
+                        last_value=final_value,
+                        terminated=True,
+                    )
+                )
+                total_length += cur_length[e]
 
     return Samples(
         records,

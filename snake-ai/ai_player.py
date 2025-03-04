@@ -1,3 +1,10 @@
+"""
+File: ai_player.py
+
+This file contains an interface to watch a trained
+actor-critic model play the snake game.
+"""
+
 from snake_ai.model import CustomCNNActorCritic
 import gymnasium as gym
 from gymnasium.wrappers import FrameStackObservation

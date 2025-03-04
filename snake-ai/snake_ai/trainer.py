@@ -38,6 +38,8 @@ def train(
     clip_norm: bool = True,
     clip_norm_val: float = 2.0,
     normalize_advantages: bool = False,
+    use_async_vectorize: bool = False,
+    only_use_finished: bool = False,
     run_name: str = "",
     print_progress: bool = True,
     save_every: int = 0,
@@ -69,6 +71,8 @@ def train(
         clip_norm (bool, optional): whether to clip the gradients. Defaults to True.
         clip_norm_val (float, optional): the value to use for the norm. Defaults to 2.0.
         normalize_advantages (bool, optional): whether to normalize the advantages. Defaults to False.
+        use_async_vectorize (bool, optional): whether to use async vectorize. Defaults to False.
+        only_use_finished (bool, optional): whether to only use finished episodes. Defaults to False.
         run_name (str, optional): the name of the run. Defaults to the current datetime.
         print_progress (bool, optional): whether to print the progress to standard output. Defaults to True.
         save_every (int, optional): how often, in iterations, to save the model's weights
@@ -114,14 +118,14 @@ def train(
     # prepare environment and initialize vars
     i = 0
     best_score = -float("inf")
-    env = prepare_environment(env, t, num_envs, num_stack)
+    env = prepare_environment(env, t, num_envs, num_stack, use_async_vectorize)
 
     for iteration in range(iterations):
         if print_progress:
             print(f"iteration {iteration+1}")
         model.eval()
         time_start = datetime.now()
-        the_samples = collect_samples(samples, model, env, device)
+        the_samples = collect_samples(samples, model, env, device, only_use_finished)
         time_end = datetime.now()
         writer.add_scalar("env/mean_reward", the_samples.mean_reward, i)
         writer.add_scalar("env/mean_length", the_samples.mean_length, i)
