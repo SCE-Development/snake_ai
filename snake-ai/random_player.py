@@ -12,7 +12,7 @@ import pygame
 
 snake_env  # prevent unused
 
-env = gym.make("snake_env/SnakeEnv-v0", render_mode="human")
+env = gym.make("snake_env/SnakeEnv-v0", render_mode="human", max_episode_steps=-1)
 env.reset()
 clock = pygame.time.Clock()
 while True:

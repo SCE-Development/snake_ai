@@ -16,7 +16,9 @@ import torch
 snake_env  # prevent unused
 
 if __name__ == "__main__":
-    env = gym.make("snake_env/SnakeEnv-v0")
+    # necessary to put max_episode_steps=-1, otherwise gymnasium
+    # soft caps episode length at 1000
+    env = gym.make("snake_env/SnakeEnv-v0", max_episode_steps=-1)
     frame_stack = 3
     model = CustomCNNActorCritic(
         (frame_stack, *env.observation_space.shape), env.action_space.n, 512
@@ -27,24 +29,26 @@ if __name__ == "__main__":
         model=model,
         optimizer=optim,
         env=env,
-        iterations=2048,
+        iterations=10,
         t=2048,
         num_envs=16,
-        samples=2048 * 8,
-        num_stack=frame_stack,
-        batch_size=512,
+        samples=2048 * 16,
+        num_stack=3,
+        batch_size=1024,
         epochs=6,
         gamma=0.99,
         lam=0.95,
-        eps=0.25,
+        eps=0.07,
         ecf=0,
         vcf=1,
-        clip_norm_val=0.5,
+        clip_norm_val=0.15,
         device="cuda",
         normalize_advantages=False,
         num_workers=12,
         print_progress=True,
-        clip_norm=False,
+        clip_norm=True,
+        use_async_vectorize=True,  # change based on your number of envs
+        only_use_finished=True,
         run_name="",
         save_every=32,
     )

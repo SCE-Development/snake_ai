@@ -38,7 +38,7 @@ class SnakeEnv(gym.Env):
     )
     REWARD_SCALE = 0
     EAT_REWARD = 1
-    DEATH_PENALTY = 0.25
+    DEATH_PENALTY = 1
     INVALID_PENALTY = 0
 
     # display related constants

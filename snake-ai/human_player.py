@@ -6,12 +6,12 @@ using the human keyboard controls.
 """
 
 import snake_env
-import gymnasium as gym
 import pygame
+import gymnasium as gym
 
 snake_env  # prevent unused
 
-env = gym.make("snake_env/SnakeEnv-v0", render_mode="human")
+env = gym.make("snake_env/SnakeEnv-v0", render_mode="human", max_episode_steps=-1)
 env.reset()
 clock = pygame.time.Clock()
 action = 2
@@ -32,6 +32,6 @@ while True:
     env.render()
     if terminated or truncated:
         break
-    clock.tick(25)
+    clock.tick(30)
 
 env.close()
