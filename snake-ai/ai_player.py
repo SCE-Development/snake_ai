@@ -40,7 +40,7 @@ if __name__ == "__main__":
     deterministic = args.deterministic
 
     device = "cpu" if not cuda else "cuda"
-    env = gym.make("snake_env/SnakeEnv-v0", render_mode="human")
+    env = gym.make("snake_env/SnakeEnv-v0", render_mode="human", max_episode_steps=-1)
 
     model = CustomCNNActorCritic(
         (frame_stack, *env.observation_space.shape),
@@ -56,6 +56,7 @@ if __name__ == "__main__":
     clock = pygame.time.Clock()
     good = True
     total_reward = 0
+    i = 0
     while good:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -83,6 +84,7 @@ if __name__ == "__main__":
         if terminated or truncated:
             good = False
         clock.tick(60)
+        i += 1
 
     env.close()
-    print("Finished with total reward", total_reward)
+    print("Finished with total reward", total_reward, "after", i, "steps")

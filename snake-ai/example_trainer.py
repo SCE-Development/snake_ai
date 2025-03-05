@@ -16,7 +16,7 @@ import torch
 snake_env  # prevent unused
 
 if __name__ == "__main__":
-    env = gym.make("snake_env/SnakeEnv-v0")
+    env = gym.make("snake_env/SnakeEnv-v0", max_episode_steps=-1)
     frame_stack = 3
     model = CustomCNNActorCritic(
         (frame_stack, *env.observation_space.shape), env.action_space.n, 512
