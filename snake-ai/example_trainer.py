@@ -16,6 +16,8 @@ import torch
 snake_env  # prevent unused
 
 if __name__ == "__main__":
+    # necessary to put max_episode_steps=-1, otherwise gymnasium
+    # soft caps episode length at 1000
     env = gym.make("snake_env/SnakeEnv-v0", max_episode_steps=-1)
     frame_stack = 3
     model = CustomCNNActorCritic(
@@ -46,6 +48,7 @@ if __name__ == "__main__":
         print_progress=True,
         clip_norm=True,
         use_async_vectorize=True,  # change based on your number of envs
+        only_use_finished=True,
         run_name="",
         save_every=32,
     )
